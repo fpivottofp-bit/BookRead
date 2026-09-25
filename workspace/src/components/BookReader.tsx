@@ -30,31 +30,28 @@ export default function BookReader({
   onBack,
   onManageChapters,
 }: BookReaderProps) {
-  const [showSettings, setShowSettings] = useState(true); // Sempre visível por padrão
+  const [showSettings, setShowSettings] = useState(false);
   const [showChapterList, setShowChapterList] = useState(false);
-  const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
-  const contentRef = useRef<HTMLDivElement>(null);
-
-  // Find current chapter index from saved state
-  useEffect(() => {
+  const [currentChapterIdx, setCurrentChapterIdx] = useState(() => {
     if (book.currentChapterId) {
       const idx = book.chapters.findIndex((ch) => ch.id === book.currentChapterId);
-      if (idx >= 0) {
-        setCurrentChapterIdx(idx);
-      }
+      return idx >= 0 ? idx : 0;
     }
-  }, [book.currentChapterId, book.chapters]);
+    return 0;
+  });
+  const contentRef = useRef<HTMLDivElement>(null);
+  const isNavigatingRef = useRef(false);
 
-  // Restore scroll position
+  // Restore scroll position only on initial load
   useEffect(() => {
-    if (contentRef.current && book.scrollPosition) {
+    if (contentRef.current && book.scrollPosition && !isNavigatingRef.current) {
       setTimeout(() => {
         if (contentRef.current) {
           contentRef.current.scrollTop = book.scrollPosition || 0;
         }
       }, 100);
     }
-  }, [currentChapterIdx]);
+  }, []);
 
   const currentChapter: Chapter | undefined = book.chapters[currentChapterIdx];
 
@@ -69,25 +66,40 @@ export default function BookReader({
     });
   }, [book, currentChapter, onUpdateBook]);
 
-  // Save progress on unmount and chapter change
-  useEffect(() => {
-    return () => {
-      saveProgress();
-    };
-  }, [currentChapterIdx]);
-
   // Save progress periodically
   useEffect(() => {
     const interval = setInterval(saveProgress, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      saveProgress();
+    };
   }, [saveProgress]);
 
   const goToChapter = (idx: number) => {
-    saveProgress();
-    setCurrentChapterIdx(idx);
-    if (contentRef.current) {
-      contentRef.current.scrollTop = 0;
+    // Mark that we're navigating (don't restore scroll)
+    isNavigatingRef.current = true;
+    
+    // Save current progress before changing
+    if (currentChapter) {
+      const scrollPos = contentRef.current?.scrollTop || 0;
+      onUpdateBook({
+        ...book,
+        currentChapterId: currentChapter.id,
+        scrollPosition: scrollPos,
+        lastReadAt: Date.now(),
+      });
     }
+    
+    // Change chapter
+    setCurrentChapterIdx(idx);
+    
+    // Reset scroll to top
+    setTimeout(() => {
+      if (contentRef.current) {
+        contentRef.current.scrollTop = 0;
+      }
+    }, 50);
+    
     setShowChapterList(false);
   };
 
@@ -101,6 +113,12 @@ export default function BookReader({
     if (currentChapterIdx > 0) {
       goToChapter(currentChapterIdx - 1);
     }
+  };
+
+  // Handle back button
+  const handleBack = () => {
+    saveProgress();
+    onBack();
   };
 
   const changeFontSize = (delta: number) => {
@@ -158,7 +176,7 @@ export default function BookReader({
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button 
-            onClick={() => { saveProgress(); onBack(); }}
+            onClick={handleBack}
             style={{ 
               background: 'none', 
               border: 'none', 
@@ -217,14 +235,14 @@ export default function BookReader({
         />
       </div>
 
-      {/* Settings Panel - Sempre visível */}
+      {/* Settings Panel - Colapsável */}
       {showSettings && (
         <div style={{
           flexShrink: 0,
           backgroundColor: settings.backgroundColor,
           borderTop: `1px solid ${settings.textColor}20`,
           padding: '16px',
-          maxHeight: '50vh',
+          maxHeight: '60vh',
           overflowY: 'auto',
         }}>
           {/* Font Size */}
@@ -400,80 +418,95 @@ export default function BookReader({
         </div>
       )}
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation - Sempre visível com botões grandes */}
       <div style={{
         flexShrink: 0,
         backgroundColor: settings.backgroundColor,
         borderTop: `1px solid ${settings.textColor}20`,
         padding: '12px 16px',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          {/* Botão Anterior */}
           <button
             onClick={prevChapter}
             disabled={currentChapterIdx === 0}
             style={{
+              flex: 1,
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '4px',
-              padding: '8px 12px',
+              padding: '12px 8px',
               borderRadius: '12px',
-              border: 'none',
-              backgroundColor: 'transparent',
+              border: `1px solid ${settings.textColor}30`,
+              backgroundColor: currentChapterIdx === 0 ? 'transparent' : `${settings.textColor}10`,
               color: settings.textColor,
               cursor: currentChapterIdx === 0 ? 'not-allowed' : 'pointer',
               opacity: currentChapterIdx === 0 ? 0.3 : 1,
+              fontSize: '14px',
+              fontWeight: 500,
             }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            <span style={{ fontSize: '14px' }}>Anterior</span>
+            <span>Anterior</span>
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              style={{
-                padding: '8px',
-                borderRadius: '12px',
-                border: 'none',
-                backgroundColor: 'transparent',
-                color: settings.textColor,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-              </svg>
-            </button>
-            <span style={{ fontSize: '12px', opacity: 0.5 }}>
-              {currentChapterIdx + 1}/{book.chapters.length}
-            </span>
-          </div>
+          {/* Botão Configurações */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            style={{
+              padding: '12px 16px',
+              borderRadius: '12px',
+              border: `1px solid ${settings.textColor}30`,
+              backgroundColor: showSettings ? `${settings.textColor}20` : 'transparent',
+              color: settings.textColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '14px',
+              fontWeight: 500,
+            }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            <span>{showSettings ? 'Fechar' : 'Ajustes'}</span>
+          </button>
 
+          {/* Botão Próximo */}
           <button
             onClick={nextChapter}
             disabled={currentChapterIdx === book.chapters.length - 1}
             style={{
+              flex: 1,
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '4px',
-              padding: '8px 12px',
+              padding: '12px 8px',
               borderRadius: '12px',
-              border: 'none',
-              backgroundColor: 'transparent',
+              border: `1px solid ${settings.textColor}30`,
+              backgroundColor: currentChapterIdx === book.chapters.length - 1 ? 'transparent' : `${settings.textColor}10`,
               color: settings.textColor,
               cursor: currentChapterIdx === book.chapters.length - 1 ? 'not-allowed' : 'pointer',
               opacity: currentChapterIdx === book.chapters.length - 1 ? 0.3 : 1,
+              fontSize: '14px',
+              fontWeight: 500,
             }}
           >
-            <span style={{ fontSize: '14px' }}>Próximo</span>
+            <span>Próximo</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+        </div>
+
+        {/* Indicador de capítulo */}
+        <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '12px', opacity: 0.5 }}>
+          Capítulo {currentChapterIdx + 1} de {book.chapters.length}
         </div>
       </div>
 
